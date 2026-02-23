@@ -1,3 +1,5 @@
+import base64
+import json
 from pathlib import Path
 from typing import Any, Generator, Sequence
 
@@ -90,3 +92,69 @@ def stream_wide_parquet_rows(
     parquet_file = pq.ParquetFile(str(parquet_path))
     for batch in parquet_file.iter_batches(batch_size=batch_size, columns=columns):
         yield from batch.to_pylist()
+
+
+def _find_base64_payloads(value: Any) -> list[str]:
+    payloads: list[str] = []
+
+    if isinstance(value, dict):
+        if value.get("__bytes__") is True:
+            encoding = value.get("encoding")
+            encoded = value.get("value")
+            if encoding == "base64" and isinstance(encoded, str):
+                payloads.append(encoded)
+
+        for child in value.values():
+            payloads.extend(_find_base64_payloads(child))
+        return payloads
+
+    if isinstance(value, list):
+        for child in value:
+            payloads.extend(_find_base64_payloads(child))
+
+    return payloads
+
+
+def extract_images(
+    parquet_path: str | Path,
+    column: str,
+    *,
+    batch_size: int = 1024,
+) -> list[bytes]:
+    if batch_size <= 0:
+        raise ValueError("batch_size must be greater than 0")
+
+    _require_pyarrow()
+    parquet_file = pq.ParquetFile(str(parquet_path))
+    if column not in parquet_file.schema.names:
+        raise ValueError(f"column '{column}' not found in parquet file")
+
+    images: list[bytes] = []
+    for row in stream_wide_parquet_rows(
+        parquet_path,
+        columns=[column],
+        batch_size=batch_size,
+    ):
+        cell = row.get(column)
+        if cell is None:
+            continue
+
+        payload_obj: Any = cell
+        if isinstance(cell, str):
+            try:
+                payload_obj = json.loads(cell)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"column '{column}' contains non-JSON string payloads; "
+                    "expected JSON-encoded base64 bytes"
+                ) from exc
+
+        for encoded in _find_base64_payloads(payload_obj):
+            try:
+                images.append(base64.b64decode(encoded, validate=True))
+            except (ValueError, base64.binascii.Error) as exc:
+                raise ValueError(
+                    f"column '{column}' contains invalid base64 payload"
+                ) from exc
+
+    return images

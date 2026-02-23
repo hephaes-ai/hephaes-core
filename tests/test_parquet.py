@@ -1,6 +1,8 @@
-"""Tests for hephaes_core.parquet (WideParquetWriter, stream_wide_parquet_rows)."""
+"""Tests for hephaes_core.parquet helpers and streaming utilities."""
 from __future__ import annotations
 
+import base64
+import json
 from pathlib import Path
 
 import pytest
@@ -167,3 +169,75 @@ class TestStreamWideParquetRows:
         parquet_file = self._write_test_file(tmp_path, n_rows=2)
         rows = list(stream_wide_parquet_rows(str(parquet_file)))
         assert len(rows) == 2
+
+
+# ---------------------------------------------------------------------------
+# extract_images
+# ---------------------------------------------------------------------------
+
+class TestExtractImages:
+    @staticmethod
+    def _encoded_bytes(payload: bytes) -> str:
+        return json.dumps(
+            {
+                "__bytes__": True,
+                "encoding": "base64",
+                "value": base64.b64encode(payload).decode("ascii"),
+            }
+        )
+
+    def test_extracts_base64_payloads_from_column(self, tmp_path):
+        from hephaes_core.parquet import WideParquetWriter, extract_images
+
+        img0 = b"\x89PNG\r\n\x1a\nimg0"
+        img1 = b"\x89PNG\r\n\x1a\nimg1"
+
+        with WideParquetWriter(output_dir=tmp_path, episode_id="ep", field_names=["camera"]) as writer:
+            writer.write_table(
+                timestamps=[1, 2],
+                field_data={
+                    "camera": [
+                        self._encoded_bytes(img0),
+                        self._encoded_bytes(img1),
+                    ]
+                },
+            )
+
+        images = extract_images(tmp_path / "ep.parquet", "camera")
+        assert images == [img0, img1]
+
+    def test_extracts_nested_base64_payloads(self, tmp_path):
+        from hephaes_core.parquet import WideParquetWriter, extract_images
+
+        image_payload = b"\xff\xd8\xffjpeg"
+        nested = json.dumps(
+            {
+                "header": {"frame_id": "cam"},
+                "data": {
+                    "__bytes__": True,
+                    "encoding": "base64",
+                    "value": base64.b64encode(image_payload).decode("ascii"),
+                },
+            }
+        )
+
+        with WideParquetWriter(output_dir=tmp_path, episode_id="nested", field_names=["camera"]) as writer:
+            writer.write_table(
+                timestamps=[1],
+                field_data={"camera": [nested]},
+            )
+
+        images = extract_images(tmp_path / "nested.parquet", "camera")
+        assert images == [image_payload]
+
+    def test_missing_column_raises(self, tmp_path):
+        from hephaes_core.parquet import WideParquetWriter, extract_images
+
+        with WideParquetWriter(output_dir=tmp_path, episode_id="ep", field_names=["camera"]) as writer:
+            writer.write_table(
+                timestamps=[1],
+                field_data={"camera": [self._encoded_bytes(b"img")]},
+            )
+
+        with pytest.raises(ValueError, match="not found"):
+            extract_images(tmp_path / "ep.parquet", "missing")
