@@ -28,10 +28,16 @@ Install from source:
 pip install .
 ```
 
-For local development:
+For local development and tests:
 
 ```bash
-pip install -e .
+pip install -r requirements.txt
+```
+
+Or install the dev extra directly:
+
+```bash
+pip install -e ".[dev]"
 ```
 
 ## Quick Start
@@ -172,6 +178,12 @@ Run the test suite with:
 
 ```bash
 pytest
+```
+
+Build a wheel locally with:
+
+```bash
+python -m build
 ```
 
 ## License

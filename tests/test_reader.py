@@ -155,6 +155,38 @@ class TestROS1Reader:
             assert all(m.topic == "/cmd_vel" for m in result)
             reader.close()
 
+    def test_read_messages_prints_skip_statement_on_deserialize_failure(self, tmp_bag_file, capsys):
+        msgs = [
+            ("/cmd_vel", 1_000_000_000, {}),
+            ("/cmd_vel", 2_000_000_000, {}),
+        ]
+        mock_reader = make_mock_any_reader(
+            topics={"/cmd_vel": "geometry_msgs/Twist"},
+            messages=msgs,
+        )
+
+        deserialize_calls = {"count": 0}
+
+        def _deserialize(rawdata, msgtype):
+            deserialize_calls["count"] += 1
+            if deserialize_calls["count"] == 1:
+                raise ValueError("bad payload")
+            return {"value": 2}
+
+        mock_reader.deserialize = _deserialize
+
+        with _patch_any_reader(mock_reader):
+            from hephaes_core.reader import ROS1Reader
+
+            reader = ROS1Reader(str(tmp_bag_file))
+            result = list(reader.read_messages())
+            captured = capsys.readouterr()
+
+            assert len(result) == 1
+            assert "Skipping message due to deserialization failure" in captured.err
+            assert "bad payload" in captured.err
+            reader.close()
+
     def test_start_time_end_time(self, tmp_bag_file):
         mock_reader = make_mock_any_reader(start_time=100, end_time=200)
         with _patch_any_reader(mock_reader):

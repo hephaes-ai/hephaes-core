@@ -1,4 +1,5 @@
 import logging
+import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, Generator
@@ -187,13 +188,13 @@ class RosReader(ABC):
                         data=msg_data,
                     )
                 except Exception as exc:
-                    logger.warning(
-                        "Failed to deserialize message (topic='%s', type='%s', timestamp=%s): %s",
-                        connection.topic,
-                        connection.msgtype,
-                        timestamp,
-                        exc,
+                    skip_message = (
+                        "Skipping message due to deserialization failure "
+                        f"(topic='{connection.topic}', type='{connection.msgtype}', "
+                        f"timestamp={timestamp}): {exc}"
                     )
+                    print(skip_message, file=sys.stderr)
+                    logger.warning(skip_message)
                     continue
         except Exception as exc:
             raise RuntimeError(f"Failed to read messages from bag: {exc}") from exc
