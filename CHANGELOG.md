@@ -6,7 +6,7 @@ This changelog is intentionally lightweight and focuses on user-visible changes:
 new capabilities, behavior changes, bug fixes, and anything that affects dataset
 correctness or compatibility.
 
-## [0.2.0] - Unreleased
+## [0.2.1] - Released
 
 ### Added
 
@@ -25,7 +25,7 @@ correctness or compatibility.
 - Continued the converter/output refactor so one input log produces one dataset
   file with a consistent per-row schema across output formats.
 - Standardized the published package version and runtime package version on
-  `0.2.0`.
+  `0.2.1`.
 
 ### Fixed
 
