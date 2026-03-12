@@ -1,8 +1,8 @@
-"""Tests for hephaes_core.models."""
+"""Tests for hephaes.models."""
 import pytest
 from pydantic import ValidationError
 
-from hephaes_core.models import (
+from hephaes.models import (
     BagMetadata,
     EpisodeRef,
     GroupingConfig,

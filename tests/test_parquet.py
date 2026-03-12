@@ -1,4 +1,4 @@
-"""Tests for hephaes_core.parquet helpers and streaming utilities."""
+"""Tests for hephaes.parquet helpers and streaming utilities."""
 from __future__ import annotations
 
 import base64
@@ -16,18 +16,18 @@ pytest.importorskip("pyarrow")
 
 class TestWideParquetWriter:
     def test_creates_parquet_file(self, tmp_path):
-        from hephaes_core.parquet import WideParquetWriter
+        from hephaes.parquet import WideParquetWriter
         with WideParquetWriter(output_dir=tmp_path, episode_id="ep001", field_names=["cmd_vel"]) as writer:
             pass
         assert (tmp_path / "ep001.parquet").exists()
 
     def test_path_attribute(self, tmp_path):
-        from hephaes_core.parquet import WideParquetWriter
+        from hephaes.parquet import WideParquetWriter
         with WideParquetWriter(output_dir=tmp_path, episode_id="ep001", field_names=["cmd_vel"]) as writer:
             assert writer.path == tmp_path / "ep001.parquet"
 
     def test_creates_output_dir_if_missing(self, tmp_path):
-        from hephaes_core.parquet import WideParquetWriter
+        from hephaes.parquet import WideParquetWriter
         nested = tmp_path / "a" / "b" / "c"
         with WideParquetWriter(output_dir=nested, episode_id="ep1", field_names=["f"]) as writer:
             pass
@@ -35,7 +35,7 @@ class TestWideParquetWriter:
 
     def test_schema_has_dynamic_columns(self, tmp_path):
         import pyarrow.parquet as pq
-        from hephaes_core.parquet import WideParquetWriter
+        from hephaes.parquet import WideParquetWriter
         field_names = ["cmd_vel", "odom", "lidar"]
         with WideParquetWriter(output_dir=tmp_path, episode_id="ep1", field_names=field_names) as writer:
             writer.write_table(
@@ -52,7 +52,7 @@ class TestWideParquetWriter:
             assert fname in col_names
 
     def test_write_table_populates_correct_columns(self, tmp_path):
-        from hephaes_core.parquet import WideParquetWriter, stream_wide_parquet_rows
+        from hephaes.parquet import WideParquetWriter, stream_wide_parquet_rows
         with WideParquetWriter(output_dir=tmp_path, episode_id="ep1", field_names=["cmd_vel", "odom"]) as writer:
             writer.write_table(
                 timestamps=[1_000_000_000, 2_000_000_000],
@@ -69,7 +69,7 @@ class TestWideParquetWriter:
         assert rows[1]["odom"] == '{"p": 2}'
 
     def test_write_table_empty_no_op(self, tmp_path):
-        from hephaes_core.parquet import WideParquetWriter
+        from hephaes.parquet import WideParquetWriter
         with WideParquetWriter(output_dir=tmp_path, episode_id="ep1", field_names=["f"]) as writer:
             writer.write_table(
                 timestamps=[],
@@ -77,7 +77,7 @@ class TestWideParquetWriter:
             )
 
     def test_absent_field_in_field_data_becomes_all_null(self, tmp_path):
-        from hephaes_core.parquet import WideParquetWriter, stream_wide_parquet_rows
+        from hephaes.parquet import WideParquetWriter, stream_wide_parquet_rows
         with WideParquetWriter(output_dir=tmp_path, episode_id="ep1", field_names=["cmd_vel", "odom"]) as writer:
             writer.write_table(
                 timestamps=[1_000_000_000, 2_000_000_000],
@@ -89,14 +89,14 @@ class TestWideParquetWriter:
         assert rows[1]["odom"] is None
 
     def test_context_manager_closes_writer(self, tmp_path):
-        from hephaes_core.parquet import WideParquetWriter
+        from hephaes.parquet import WideParquetWriter
         writer = WideParquetWriter(output_dir=tmp_path, episode_id="ep1", field_names=["f"])
         writer.__enter__()
         writer.__exit__(None, None, None)
         assert (tmp_path / "ep1.parquet").exists()
 
     def test_fixed_columns_correct(self, tmp_path):
-        from hephaes_core.parquet import WideParquetWriter, stream_wide_parquet_rows
+        from hephaes.parquet import WideParquetWriter, stream_wide_parquet_rows
         with WideParquetWriter(output_dir=tmp_path, episode_id="myep", field_names=["f"]) as writer:
             writer.write_table(
                 timestamps=[999],
@@ -112,7 +112,7 @@ class TestWideParquetWriter:
 
 class TestStreamWideParquetRows:
     def _write_test_file(self, path: Path, n_rows: int = 5) -> Path:
-        from hephaes_core.parquet import WideParquetWriter
+        from hephaes.parquet import WideParquetWriter
         with WideParquetWriter(output_dir=path, episode_id="test", field_names=["f"]) as writer:
             writer.write_table(
                 timestamps=[i * 1_000_000_000 for i in range(n_rows)],
@@ -121,13 +121,13 @@ class TestStreamWideParquetRows:
         return path / "test.parquet"
 
     def test_yields_all_rows(self, tmp_path):
-        from hephaes_core.parquet import stream_wide_parquet_rows
+        from hephaes.parquet import stream_wide_parquet_rows
         parquet_file = self._write_test_file(tmp_path, n_rows=5)
         rows = list(stream_wide_parquet_rows(parquet_file))
         assert len(rows) == 5
 
     def test_row_contains_expected_keys(self, tmp_path):
-        from hephaes_core.parquet import stream_wide_parquet_rows
+        from hephaes.parquet import stream_wide_parquet_rows
         parquet_file = self._write_test_file(tmp_path, n_rows=1)
         rows = list(stream_wide_parquet_rows(parquet_file))
         row = rows[0]
@@ -135,7 +135,7 @@ class TestStreamWideParquetRows:
         assert "f" in row
 
     def test_null_field_is_none_in_dict(self, tmp_path):
-        from hephaes_core.parquet import WideParquetWriter, stream_wide_parquet_rows
+        from hephaes.parquet import WideParquetWriter, stream_wide_parquet_rows
         with WideParquetWriter(output_dir=tmp_path, episode_id="ep", field_names=["a", "b"]) as w:
             w.write_table(
                 timestamps=[1],
@@ -145,19 +145,19 @@ class TestStreamWideParquetRows:
         assert rows[0]["b"] is None
 
     def test_batch_size_respected(self, tmp_path):
-        from hephaes_core.parquet import stream_wide_parquet_rows
+        from hephaes.parquet import stream_wide_parquet_rows
         parquet_file = self._write_test_file(tmp_path, n_rows=10)
         rows = list(stream_wide_parquet_rows(parquet_file, batch_size=3))
         assert len(rows) == 10
 
     def test_invalid_batch_size_raises(self, tmp_path):
-        from hephaes_core.parquet import stream_wide_parquet_rows
+        from hephaes.parquet import stream_wide_parquet_rows
         parquet_file = self._write_test_file(tmp_path, n_rows=1)
         with pytest.raises(ValueError, match="batch_size"):
             list(stream_wide_parquet_rows(parquet_file, batch_size=0))
 
     def test_column_selection(self, tmp_path):
-        from hephaes_core.parquet import stream_wide_parquet_rows
+        from hephaes.parquet import stream_wide_parquet_rows
         parquet_file = self._write_test_file(tmp_path, n_rows=2)
         rows = list(stream_wide_parquet_rows(parquet_file, columns=["timestamp_ns"]))
         assert len(rows) == 2
@@ -165,7 +165,7 @@ class TestStreamWideParquetRows:
             assert set(row.keys()) == {"timestamp_ns"}
 
     def test_string_path_accepted(self, tmp_path):
-        from hephaes_core.parquet import stream_wide_parquet_rows
+        from hephaes.parquet import stream_wide_parquet_rows
         parquet_file = self._write_test_file(tmp_path, n_rows=2)
         rows = list(stream_wide_parquet_rows(str(parquet_file)))
         assert len(rows) == 2
@@ -187,7 +187,7 @@ class TestExtractImages:
         )
 
     def test_extracts_base64_payloads_from_column(self, tmp_path):
-        from hephaes_core.parquet import WideParquetWriter, extract_images
+        from hephaes.parquet import WideParquetWriter, extract_images
 
         img0 = b"\x89PNG\r\n\x1a\nimg0"
         img1 = b"\x89PNG\r\n\x1a\nimg1"
@@ -207,7 +207,7 @@ class TestExtractImages:
         assert images == [img0, img1]
 
     def test_extracts_nested_base64_payloads(self, tmp_path):
-        from hephaes_core.parquet import WideParquetWriter, extract_images
+        from hephaes.parquet import WideParquetWriter, extract_images
 
         image_payload = b"\xff\xd8\xffjpeg"
         nested = json.dumps(
@@ -231,7 +231,7 @@ class TestExtractImages:
         assert images == [image_payload]
 
     def test_missing_column_raises(self, tmp_path):
-        from hephaes_core.parquet import WideParquetWriter, extract_images
+        from hephaes.parquet import WideParquetWriter, extract_images
 
         with WideParquetWriter(output_dir=tmp_path, episode_id="ep", field_names=["camera"]) as writer:
             writer.write_table(

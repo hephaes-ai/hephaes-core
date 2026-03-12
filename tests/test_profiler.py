@@ -1,4 +1,4 @@
-"""Tests for hephaes_core.profiler."""
+"""Tests for hephaes.profiler."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,11 +7,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from conftest import make_mock_any_reader
-from hephaes_core.models import BagMetadata
+from hephaes.models import BagMetadata
 
 
 def _patch_any_reader(mock_reader):
-    return patch("hephaes_core.reader.AnyReader", return_value=mock_reader)
+    return patch("hephaes.reader.AnyReader", return_value=mock_reader)
 
 
 # ---------------------------------------------------------------------------
@@ -28,8 +28,8 @@ class TestExtractTemporalMetadata:
             message_count=2,
         )
         with _patch_any_reader(mock_reader):
-            from hephaes_core.reader import ROS1Reader
-            from hephaes_core.profiler import extract_temporal_metadata
+            from hephaes.reader import ROS1Reader
+            from hephaes.profiler import extract_temporal_metadata
             reader = ROS1Reader(str(tmp_bag_file))
             tm = extract_temporal_metadata(reader)
             assert tm.start_timestamp == 1_000_000_000
@@ -51,8 +51,8 @@ class TestExtractTemporalMetadata:
         mock_reader.message_count = 0
 
         with _patch_any_reader(mock_reader):
-            from hephaes_core.reader import ROS1Reader
-            from hephaes_core.profiler import extract_temporal_metadata
+            from hephaes.reader import ROS1Reader
+            from hephaes.profiler import extract_temporal_metadata
             reader = ROS1Reader(str(tmp_bag_file))
             tm = extract_temporal_metadata(reader)
             assert tm.start_timestamp == 500_000_000
@@ -67,8 +67,8 @@ class TestExtractTemporalMetadata:
             message_count=1,
         )
         with _patch_any_reader(mock_reader):
-            from hephaes_core.reader import ROS1Reader
-            from hephaes_core.profiler import extract_temporal_metadata
+            from hephaes.reader import ROS1Reader
+            from hephaes.profiler import extract_temporal_metadata
             reader = ROS1Reader(str(tmp_bag_file))
             tm = extract_temporal_metadata(reader)
             assert tm.duration_seconds == pytest.approx(5.0)
@@ -86,8 +86,8 @@ class TestExtractTopics:
             messages=[("/cmd_vel", 1_000_000_000, {}), ("/cmd_vel", 2_000_000_000, {})],
         )
         with _patch_any_reader(mock_reader):
-            from hephaes_core.reader import ROS1Reader
-            from hephaes_core.profiler import extract_topics
+            from hephaes.reader import ROS1Reader
+            from hephaes.profiler import extract_topics
             reader = ROS1Reader(str(tmp_bag_file))
             topics = extract_topics(reader)
             assert len(topics) == 1
@@ -103,8 +103,8 @@ class TestExtractTopics:
             messages=messages,
         )
         with _patch_any_reader(mock_reader):
-            from hephaes_core.reader import ROS1Reader
-            from hephaes_core.profiler import extract_topics
+            from hephaes.reader import ROS1Reader
+            from hephaes.profiler import extract_topics
             reader = ROS1Reader(str(tmp_bag_file))
             topics = extract_topics(reader)
             assert topics[0].rate_hz > 0
@@ -120,8 +120,8 @@ class TestExtractTopics:
             ],
         )
         with _patch_any_reader(mock_reader):
-            from hephaes_core.reader import ROS1Reader
-            from hephaes_core.profiler import extract_topics
+            from hephaes.reader import ROS1Reader
+            from hephaes.profiler import extract_topics
             reader = ROS1Reader(str(tmp_bag_file))
             topics = extract_topics(reader)
             topic_names = {t.name for t in topics}
@@ -135,8 +135,8 @@ class TestExtractTopics:
             messages=[("/t", 1_000_000_000, {})],
         )
         with _patch_any_reader(mock_reader):
-            from hephaes_core.reader import ROS1Reader
-            from hephaes_core.profiler import extract_topics
+            from hephaes.reader import ROS1Reader
+            from hephaes.profiler import extract_topics
             reader = ROS1Reader(str(tmp_bag_file))
             topics = extract_topics(reader)
             assert topics[0].rate_hz == 0.0
@@ -149,29 +149,29 @@ class TestExtractTopics:
 
 class TestProfiler:
     def test_init_not_list_raises(self):
-        from hephaes_core.profiler import Profiler
+        from hephaes.profiler import Profiler
         with pytest.raises(TypeError, match="must be a list"):
             Profiler("not_a_list")
 
     def test_init_empty_list_raises(self):
-        from hephaes_core.profiler import Profiler
+        from hephaes.profiler import Profiler
         with pytest.raises(ValueError, match="non-empty"):
             Profiler([])
 
     def test_init_invalid_extension_raises(self, tmp_path):
-        from hephaes_core.profiler import Profiler
+        from hephaes.profiler import Profiler
         p = tmp_path / "file.txt"
         p.write_bytes(b"")
         with pytest.raises(ValueError):
             Profiler([str(p)])
 
     def test_init_max_workers_zero_raises(self, tmp_bag_file):
-        from hephaes_core.profiler import Profiler
+        from hephaes.profiler import Profiler
         with pytest.raises(ValueError, match="max_workers"):
             Profiler([str(tmp_bag_file)], max_workers=0)
 
     def test_init_valid(self, tmp_bag_file):
-        from hephaes_core.profiler import Profiler
+        from hephaes.profiler import Profiler
         p = Profiler([str(tmp_bag_file)])
         assert len(p.bag_paths) == 1
 
@@ -184,7 +184,7 @@ class TestProfiler:
             message_count=2,
         )
         with _patch_any_reader(mock_reader):
-            from hephaes_core.profiler import Profiler
+            from hephaes.profiler import Profiler
             profiler = Profiler([str(tmp_bag_file)], max_workers=1)
             results = profiler.profile()
             assert isinstance(results, list)
@@ -208,7 +208,7 @@ class TestProfiler:
             message_count=2,
         )
         with _patch_any_reader(mock_reader):
-            from hephaes_core.profiler import Profiler
+            from hephaes.profiler import Profiler
             profiler = Profiler([str(bag1), str(bag2)], max_workers=1)
             results = profiler.profile()
             assert len(results) == 2

@@ -2,7 +2,7 @@ import logging
 
 __version__ = "0.1.0"
 
-_PACKAGE_LOGGER_NAME = "hephaes_core"
+_PACKAGE_LOGGER_NAME = "hephaes"
 _package_logger = logging.getLogger(_PACKAGE_LOGGER_NAME)
 if not _package_logger.handlers:
     _package_logger.addHandler(logging.NullHandler())
@@ -15,7 +15,7 @@ def configure_logging(
     handler: logging.Handler | None = None,
     propagate: bool = False,
 ) -> logging.Logger:
-    """Configure package logging for hephaes_core modules."""
+    """Configure package logging for hephaes modules."""
     logger = logging.getLogger(_PACKAGE_LOGGER_NAME)
     if handler is None:
         handler = logging.StreamHandler()

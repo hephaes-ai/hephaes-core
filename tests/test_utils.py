@@ -1,10 +1,10 @@
-"""Tests for hephaes_core._utils."""
+"""Tests for hephaes._utils."""
 import struct
 from pathlib import Path
 
 import pytest
 
-from hephaes_core._utils import (
+from hephaes._utils import (
     compute_path_size_bytes,
     detect_compression_format,
     determine_ros_version_from_path,

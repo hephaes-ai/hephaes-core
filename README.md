@@ -1,4 +1,4 @@
-# hephaes-core
+# hephaes
 
 Python package for robotics teams that need to turn raw ROS logs into consistent datasets. The package helps you:
 
@@ -47,7 +47,7 @@ pip install -e ".[dev]"
 Use `Profiler` to inspect timing metadata and topic inventory before deciding how to map the log.
 
 ```python
-from hephaes_core import Profiler
+from hephaes import Profiler
 
 profile = Profiler(["data/run_001.mcap"], max_workers=1).profile()[0]
 
@@ -62,7 +62,7 @@ print([(topic.name, topic.message_type, topic.rate_hz) for topic in profile.topi
 You can auto-generate a mapping from discovered topics:
 
 ```python
-from hephaes_core import build_mapping_template
+from hephaes import build_mapping_template
 
 mapping = build_mapping_template(profile.topics)
 print(mapping.root)
@@ -71,7 +71,7 @@ print(mapping.root)
 Or define a stable schema explicitly. This is the main mechanism for dataset schema standardization.
 
 ```python
-from hephaes_core import build_mapping_template_from_json
+from hephaes import build_mapping_template_from_json
 
 mapping = build_mapping_template_from_json(
     profile.topics,
@@ -91,7 +91,7 @@ In the example above, `front_camera`, `imu`, and `vehicle_twist` become the cano
 Use `Converter` to write one Parquet file per input log.
 
 ```python
-from hephaes_core import Converter, ResampleConfig
+from hephaes import Converter, ResampleConfig
 
 converter = Converter(
     ["data/run_001.mcap"],
@@ -108,7 +108,7 @@ print(parquet_paths[0])
 ### 4. Stream the output rows
 
 ```python
-from hephaes_core import stream_wide_parquet_rows
+from hephaes import stream_wide_parquet_rows
 
 for row in stream_wide_parquet_rows(parquet_paths[0], batch_size=128):
     print(row)
@@ -117,7 +117,7 @@ for row in stream_wide_parquet_rows(parquet_paths[0], batch_size=128):
 
 ## Synchronization Modes
 
-`hephaes-core` supports three practical ways to align asynchronous topics:
+`hephaes` supports three practical ways to align asynchronous topics:
 
 | Mode | Configuration | Behavior |
 | --- | --- | --- |
@@ -162,7 +162,7 @@ This makes the output easy to stream, inspect, and hand off to downstream ETL or
 If you want to read logs directly instead of converting them immediately, use `RosReader`.
 
 ```python
-from hephaes_core import RosReader
+from hephaes import RosReader
 
 with RosReader.open("data/run_001.bag") as reader:
     print(reader.topics)

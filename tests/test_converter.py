@@ -1,4 +1,4 @@
-"""Tests for hephaes_core.converter."""
+"""Tests for hephaes.converter."""
 from __future__ import annotations
 
 import base64
@@ -8,14 +8,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hephaes_core.converter import _interpolate_json_leaves, _json_default, _resolve_mapping_for_bag
-from hephaes_core.models import MappingTemplate, ResampleConfig
+from hephaes.converter import _interpolate_json_leaves, _json_default, _resolve_mapping_for_bag
+from hephaes.models import MappingTemplate, ResampleConfig
 
 _HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 
 
 def _patch_any_reader(mock_reader: MagicMock):
-    return patch("hephaes_core.reader.AnyReader", return_value=mock_reader)
+    return patch("hephaes.reader.AnyReader", return_value=mock_reader)
 
 
 def _make_connection(topic: str, msgtype: str) -> MagicMock:
@@ -124,19 +124,19 @@ class TestConverter:
         return MappingTemplate.model_validate({"cmd_vel": ["/cmd_vel"]})
 
     def test_init_not_list_raises(self, tmp_path):
-        from hephaes_core.converter import Converter
+        from hephaes.converter import Converter
 
         with pytest.raises(TypeError, match="must be a list"):
             Converter("not_a_list", self._make_mapping(), tmp_path)
 
     def test_init_empty_list_raises(self, tmp_path):
-        from hephaes_core.converter import Converter
+        from hephaes.converter import Converter
 
         with pytest.raises(ValueError, match="non-empty"):
             Converter([], self._make_mapping(), tmp_path)
 
     def test_init_invalid_bag_extension_raises(self, tmp_path):
-        from hephaes_core.converter import Converter
+        from hephaes.converter import Converter
 
         p = tmp_path / "file.txt"
         p.write_bytes(b"")
@@ -144,19 +144,19 @@ class TestConverter:
             Converter([str(p)], self._make_mapping(), tmp_path)
 
     def test_init_invalid_max_workers_raises(self, tmp_bag_file, tmp_path):
-        from hephaes_core.converter import Converter
+        from hephaes.converter import Converter
 
         with pytest.raises(ValueError, match="max_workers"):
             Converter([str(tmp_bag_file)], self._make_mapping(), tmp_path, max_workers=0)
 
     def test_init_invalid_chunk_rows_raises(self, tmp_bag_file, tmp_path):
-        from hephaes_core.converter import Converter
+        from hephaes.converter import Converter
 
         with pytest.raises(ValueError, match="chunk_rows"):
             Converter([str(tmp_bag_file)], self._make_mapping(), tmp_path, chunk_rows=0)
 
     def test_init_invalid_resample_type_raises(self, tmp_bag_file, tmp_path):
-        from hephaes_core.converter import Converter
+        from hephaes.converter import Converter
 
         with pytest.raises(TypeError, match="ResampleConfig"):
             Converter([str(tmp_bag_file)], self._make_mapping(), tmp_path, resample={"freq_hz": 10.0, "method": "downsample"})  # type: ignore[arg-type]
@@ -168,7 +168,7 @@ class TestConverter:
             messages=[("/cmd_vel", 1_000_000_000, {"v": 1}), ("/cmd_vel", 2_000_000_000, {"v": 2})],
         )
         with _patch_any_reader(mock_reader):
-            from hephaes_core.converter import Converter
+            from hephaes.converter import Converter
 
             converter = Converter([str(tmp_bag_file)], self._make_mapping(), tmp_path, max_workers=1)
             results = converter.convert()
@@ -178,7 +178,7 @@ class TestConverter:
 
     @pytest.mark.skipif(not _HAS_PYARROW, reason="pyarrow not installed")
     def test_convert_no_resample_uses_union_timestamps_with_nulls(self, tmp_bag_file, tmp_path):
-        from hephaes_core.parquet import stream_wide_parquet_rows
+        from hephaes.parquet import stream_wide_parquet_rows
 
         mapping = MappingTemplate.model_validate({"cmd_vel": ["/cmd_vel"], "odom": ["/odom"]})
         mock_reader = make_mock_any_reader_with_payloads(
@@ -190,7 +190,7 @@ class TestConverter:
         )
 
         with _patch_any_reader(mock_reader):
-            from hephaes_core.converter import Converter
+            from hephaes.converter import Converter
 
             converter = Converter([str(tmp_bag_file)], mapping, tmp_path, max_workers=1)
             results = converter.convert()
@@ -204,7 +204,7 @@ class TestConverter:
 
     @pytest.mark.skipif(not _HAS_PYARROW, reason="pyarrow not installed")
     def test_convert_mapping_alias_fallback(self, tmp_bag_file, tmp_path):
-        from hephaes_core.parquet import stream_wide_parquet_rows
+        from hephaes.parquet import stream_wide_parquet_rows
 
         mapping = MappingTemplate.model_validate({"vel": ["/missing", "/alt_cmd"]})
         mock_reader = make_mock_any_reader_with_payloads(
@@ -213,7 +213,7 @@ class TestConverter:
         )
 
         with _patch_any_reader(mock_reader):
-            from hephaes_core.converter import Converter
+            from hephaes.converter import Converter
 
             converter = Converter([str(tmp_bag_file)], mapping, tmp_path, max_workers=1)
             results = converter.convert()
@@ -224,8 +224,8 @@ class TestConverter:
 
     @pytest.mark.skipif(not _HAS_PYARROW, reason="pyarrow not installed")
     def test_convert_downsample_uses_bucket_latest(self, tmp_bag_file, tmp_path):
-        from hephaes_core.parquet import stream_wide_parquet_rows
-        from hephaes_core.converter import Converter
+        from hephaes.parquet import stream_wide_parquet_rows
+        from hephaes.converter import Converter
 
         mapping = MappingTemplate.model_validate({"cmd_vel": ["/cmd_vel"]})
         mock_reader = make_mock_any_reader_with_payloads(
@@ -257,8 +257,8 @@ class TestConverter:
 
     @pytest.mark.skipif(not _HAS_PYARROW, reason="pyarrow not installed")
     def test_convert_interpolate_generates_regular_grid(self, tmp_bag_file, tmp_path):
-        from hephaes_core.parquet import stream_wide_parquet_rows
-        from hephaes_core.converter import Converter
+        from hephaes.parquet import stream_wide_parquet_rows
+        from hephaes.converter import Converter
 
         mapping = MappingTemplate.model_validate({"cmd_vel": ["/cmd_vel"]})
         mock_reader = make_mock_any_reader_with_payloads(
@@ -287,7 +287,7 @@ class TestConverter:
         assert middle["x"] == pytest.approx(1.0)
 
     def test_convert_empty_mapping_topics_raises(self, tmp_bag_file, tmp_path):
-        from hephaes_core.converter import Converter
+        from hephaes.converter import Converter
 
         empty_mapping = MappingTemplate.model_validate({})
         converter = Converter([str(tmp_bag_file)], empty_mapping, tmp_path, max_workers=1)
@@ -300,7 +300,7 @@ class TestConverter:
             messages=[],
         )
         with _patch_any_reader(mock_reader):
-            from hephaes_core.converter import Converter
+            from hephaes.converter import Converter
 
             mapping = MappingTemplate.model_validate({"cmd_vel": ["/cmd_vel"]})
             converter = Converter([str(tmp_bag_file)], mapping, tmp_path, max_workers=1)

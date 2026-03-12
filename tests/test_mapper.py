@@ -1,10 +1,10 @@
-"""Tests for hephaes_core.mappers."""
+"""Tests for hephaes.mappers."""
 import json
 
 import pytest
 
-from hephaes_core.mappers import build_mapping_template, build_mapping_template_from_json
-from hephaes_core.models import MappingTemplate, Topic
+from hephaes.mappers import build_mapping_template, build_mapping_template_from_json
+from hephaes.models import MappingTemplate, Topic
 
 
 def _topic(name: str) -> Topic:
