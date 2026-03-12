@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from ..models import OutputConfig, ResampleConfig, RosVersion
 
@@ -20,7 +20,7 @@ class EpisodeContext:
 @dataclass(frozen=True)
 class RecordBatch:
     timestamps: list[int]
-    field_data: dict[str, list[str | None]]
+    field_data: dict[str, list[Any | None]]
 
     @property
     def row_count(self) -> int:
@@ -51,4 +51,3 @@ class BaseDatasetWriter:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.close()
-

@@ -128,7 +128,7 @@ for row in stream_tfrecord_rows(dataset_paths[0]):
 
 Interpolation is intended for numeric sensor payloads. Non-numeric leaves fall back to the earlier sample.
 
-When you preserve original timestamps or downsample, the converter stores raw message bytes as base64-wrapped JSON strings. When you interpolate, it stores normalized JSON payloads derived from deserialized messages.
+For Parquet output, preserve/downsample modes store raw message bytes as base64-wrapped JSON strings, while interpolate stores normalized JSON payloads derived from deserialized messages. For TFRecord output, all modes deserialize messages and emit flattened typed features.
 
 ## Output Format
 
@@ -153,10 +153,13 @@ vehicle_twist: string
 Notes:
 
 - `timestamp_ns` is always present.
-- Each mapping target becomes a nullable logical string field.
-- Payloads are stored as JSON strings across both Parquet and TFRecord outputs.
+- Parquet keeps one nullable column per mapping target.
+- TFRecord expands each mapping target into flattened typed feature names such as `imu__orientation__x`.
+- Parquet stores each mapped field as a JSON string column.
 - Raw byte payloads are wrapped as base64-encoded JSON objects shaped like `{"__bytes__": true, "encoding": "base64", "value": "..."}`.
-- TFRecord stores nullability with companion `<field>__present` features so missing values round-trip cleanly.
+- TFRecord stores flattened typed features derived from deserialized messages.
+- TFRecord uses `float_list`, `int64_list`, and `bytes_list` features, plus companion `<field>__present` flags for nulls.
+- Image-like payload bytes are written as raw `bytes_list` features alongside their metadata fields.
 
 This makes the output easy to stream, inspect, and hand off to downstream ETL, analysis or ML pipelines while preserving source payload fidelity.
 

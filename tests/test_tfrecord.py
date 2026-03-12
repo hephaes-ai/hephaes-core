@@ -1,6 +1,8 @@
 """Tests for TFRecord helpers and writers."""
 from __future__ import annotations
 
+import base64
+
 from hephaes.models import TFRecordOutputConfig
 from hephaes.outputs import EpisodeContext, RecordBatch
 from hephaes.outputs.tfrecord import TFRecordDatasetWriter
@@ -27,16 +29,16 @@ class TestTFRecordDatasetWriter:
                 RecordBatch(
                     timestamps=[1, 2],
                     field_data={
-                        "cmd_vel": ['{"v": 1}', None],
-                        "odom": [None, '{"pose": 2}'],
+                        "cmd_vel": [{"v": 1}, None],
+                        "odom": [None, {"pose": 2}],
                     },
                 )
             )
 
         rows = list(stream_tfrecord_rows(tmp_path / "ep001.tfrecord"))
         assert rows == [
-            {"timestamp_ns": 1, "cmd_vel": '{"v": 1}', "odom": None},
-            {"timestamp_ns": 2, "cmd_vel": None, "odom": '{"pose": 2}'},
+            {"timestamp_ns": 1, "cmd_vel__present": 1, "cmd_vel__v": 1, "odom__present": 0},
+            {"timestamp_ns": 2, "cmd_vel__present": 0, "odom__present": 1, "odom__pose": 2},
         ]
 
     def test_reads_gzip_compressed_tfrecord(self, tmp_path):
@@ -58,9 +60,51 @@ class TestTFRecordDatasetWriter:
             writer.write_batch(
                 RecordBatch(
                     timestamps=[5],
-                    field_data={"camera": ['{"frame": 1}']},
+                    field_data={"camera": [{"frame": 1}]},
                 )
             )
 
         rows = list(stream_tfrecord_rows(tmp_path / "ep_gzip.tfrecord"))
-        assert rows == [{"timestamp_ns": 5, "camera": '{"frame": 1}'}]
+        assert rows == [{"timestamp_ns": 5, "camera__present": 1, "camera__frame": 1}]
+
+    def test_writes_bytes_and_float_features(self, tmp_path):
+        context = EpisodeContext(
+            episode_id="ep_bytes",
+            source_path=tmp_path / "source.mcap",
+            ros_version="ROS2",
+            field_names=["camera", "imu"],
+            resample=None,
+            output=TFRecordOutputConfig(),
+        )
+
+        encoded_bytes = {
+            "__bytes__": True,
+            "encoding": "base64",
+            "value": base64.b64encode(b"jpeg-bytes").decode("ascii"),
+        }
+        with TFRecordDatasetWriter(
+            output_dir=tmp_path,
+            context=context,
+            config=TFRecordOutputConfig(),
+        ) as writer:
+            writer.write_batch(
+                RecordBatch(
+                    timestamps=[7],
+                    field_data={
+                        "camera": [{"format": "jpeg", "data": encoded_bytes}],
+                        "imu": [{"accel": [0.25, 0.5, 1.0]}],
+                    },
+                )
+            )
+
+        rows = list(stream_tfrecord_rows(tmp_path / "ep_bytes.tfrecord"))
+        assert rows == [
+            {
+                "timestamp_ns": 7,
+                "camera__present": 1,
+                "camera__format": b"jpeg",
+                "camera__data": b"jpeg-bytes",
+                "imu__present": 1,
+                "imu__accel": [0.25, 0.5, 1.0],
+            }
+        ]

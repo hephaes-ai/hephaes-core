@@ -57,7 +57,15 @@ def _decode_packed_int64(payload: bytes) -> list[int]:
     return values
 
 
-def _decode_feature(payload: bytes) -> tuple[str, list[bytes] | list[int]]:
+def _decode_packed_float(payload: bytes) -> list[float]:
+    if len(payload) % 4 != 0:
+        raise ValueError("Malformed TFRecord Example: invalid packed float payload")
+    if not payload:
+        return []
+    return [item[0] for item in struct.iter_unpack("<f", payload)]
+
+
+def _decode_feature(payload: bytes) -> tuple[str, list[bytes] | list[int] | list[float]]:
     for field_number, wire_type, value in _iter_message_fields(payload):
         if field_number == 1 and wire_type == 2:
             return "bytes", [
@@ -65,6 +73,11 @@ def _decode_feature(payload: bytes) -> tuple[str, list[bytes] | list[int]]:
                 for child_field_number, child_wire_type, child in _iter_message_fields(value)
                 if child_field_number == 1 and child_wire_type == 2
             ]
+
+        if field_number == 2 and wire_type == 2:
+            for child_field_number, child_wire_type, child in _iter_message_fields(value):
+                if child_field_number == 1 and child_wire_type == 2:
+                    return "float", _decode_packed_float(child)
 
         if field_number == 3 and wire_type == 2:
             for child_field_number, child_wire_type, child in _iter_message_fields(value):
@@ -74,8 +87,8 @@ def _decode_feature(payload: bytes) -> tuple[str, list[bytes] | list[int]]:
     raise ValueError("Malformed TFRecord Example: unsupported feature payload")
 
 
-def _decode_example_features(payload: bytes) -> dict[str, tuple[str, list[bytes] | list[int]]]:
-    features: dict[str, tuple[str, list[bytes] | list[int]]] = {}
+def _decode_example_features(payload: bytes) -> dict[str, tuple[str, list[bytes] | list[int] | list[float]]]:
+    features: dict[str, tuple[str, list[bytes] | list[int] | list[float]]] = {}
 
     for field_number, wire_type, entry_payload in _iter_message_fields(payload):
         if field_number != 1 or wire_type != 2:
@@ -97,11 +110,17 @@ def _decode_example_features(payload: bytes) -> dict[str, tuple[str, list[bytes]
     return features
 
 
-def _decode_example(payload: bytes) -> dict[str, tuple[str, list[bytes] | list[int]]]:
+def _decode_example(payload: bytes) -> dict[str, tuple[str, list[bytes] | list[int] | list[float]]]:
     for field_number, wire_type, value in _iter_message_fields(payload):
         if field_number == 1 and wire_type == 2:
             return _decode_example_features(value)
     raise ValueError("Malformed TFRecord Example: missing features field")
+
+
+def _collapse_feature_values(kind: str, values: list[bytes] | list[int] | list[float]) -> Any:
+    if len(values) == 1:
+        return values[0]
+    return list(values)
 
 
 def _read_exact(handle: BinaryIO, size: int) -> bytes:
@@ -150,34 +169,8 @@ def stream_tfrecord_rows(
                     raise ValueError("Malformed TFRecord file: payload checksum mismatch")
 
             features = _decode_example(payload)
-            timestamp_kind, timestamp_values = features["timestamp_ns"]
-            if timestamp_kind != "int64" or not timestamp_values:
-                raise ValueError("Malformed TFRecord Example: timestamp_ns must be an int64 feature")
-
-            row: dict[str, Any] = {
-                "timestamp_ns": int(timestamp_values[0]),
+            yield {
+                feature_name: _collapse_feature_values(kind, values)
+                for feature_name, (kind, values) in features.items()
             }
-            for feature_name, (kind, values) in features.items():
-                if feature_name == "timestamp_ns" or not feature_name.endswith("__present"):
-                    continue
-
-                field_name = feature_name[: -len("__present")]
-                present = bool(values[0]) if kind == "int64" and values else False
-                if not present:
-                    row[field_name] = None
-                    continue
-
-                data_feature = features.get(field_name)
-                if data_feature is None:
-                    raise ValueError(
-                        f"Malformed TFRecord Example: missing payload for field '{field_name}'"
-                    )
-                data_kind, data_values = data_feature
-                if data_kind != "bytes" or not data_values:
-                    raise ValueError(
-                        f"Malformed TFRecord Example: field '{field_name}' must be a bytes feature"
-                    )
-                row[field_name] = data_values[0].decode("utf-8")
-
-            yield row
 

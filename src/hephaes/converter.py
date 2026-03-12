@@ -114,6 +114,21 @@ def _flush_chunk(
     writer.write_batch(batch)
 
 
+def _iter_output_messages(
+    *,
+    reader: RosReader,
+    topics: list[str],
+    use_normalized_payloads: bool,
+):
+    if use_normalized_payloads:
+        for message in reader.read_messages(topics=topics):
+            yield message.topic, int(message.timestamp), _normalize_payload(message.data)
+        return
+
+    for topic, timestamp, _msgtype, rawdata in reader.iter_raw_messages(topics=topics):
+        yield topic, int(timestamp), _encode_raw_payload(rawdata)
+
+
 def _convert_no_resample(
     *,
     reader: RosReader,
@@ -122,15 +137,19 @@ def _convert_no_resample(
     all_field_names: list[str],
     bag_path: str,
     chunk_rows: int,
+    use_normalized_payloads: bool,
 ) -> int:
     builder = _SparseChunkBuilder(all_field_names)
     current_timestamp: int | None = None
-    row_values: dict[str, str | None] = {}
+    row_values: dict[str, Any | None] = {}
     previous_timestamp: int | None = None
     rows_written = 0
 
-    for topic, timestamp, _msgtype, rawdata in reader.iter_raw_messages(topics=plan.topics_to_read):
-        ts = int(timestamp)
+    for topic, ts, payload in _iter_output_messages(
+        reader=reader,
+        topics=plan.topics_to_read,
+        use_normalized_payloads=use_normalized_payloads,
+    ):
         if previous_timestamp is not None and ts < previous_timestamp:
             raise ValueError(
                 f"Bag messages are out of order for '{bag_path}'. "
@@ -148,7 +167,7 @@ def _convert_no_resample(
             row_values = {}
             current_timestamp = ts
 
-        row_values[plan.topic_to_field[topic]] = _encode_raw_payload(rawdata)
+        row_values[plan.topic_to_field[topic]] = payload
 
     if current_timestamp is not None:
         builder.add_row(current_timestamp, row_values)
@@ -167,6 +186,7 @@ def _convert_downsample(
     bag_path: str,
     chunk_rows: int,
     freq_hz: float,
+    use_normalized_payloads: bool,
 ) -> int:
     step_ns = _step_ns_from_frequency(freq_hz)
 
@@ -174,11 +194,14 @@ def _convert_downsample(
     previous_timestamp: int | None = None
     bucket_start: int | None = None
     bucket_end: int | None = None
-    bucket_values: dict[str, str | None] = {}
+    bucket_values: dict[str, Any | None] = {}
     rows_written = 0
 
-    for topic, timestamp, _msgtype, rawdata in reader.iter_raw_messages(topics=plan.topics_to_read):
-        ts = int(timestamp)
+    for topic, ts, payload in _iter_output_messages(
+        reader=reader,
+        topics=plan.topics_to_read,
+        use_normalized_payloads=use_normalized_payloads,
+    ):
         if previous_timestamp is not None and ts < previous_timestamp:
             raise ValueError(
                 f"Bag messages are out of order for '{bag_path}'. "
@@ -199,7 +222,7 @@ def _convert_downsample(
             bucket_start += step_ns
             bucket_end += step_ns
 
-        bucket_values[plan.topic_to_field[topic]] = _encode_raw_payload(rawdata)
+        bucket_values[plan.topic_to_field[topic]] = payload
 
     if bucket_start is not None:
         builder.add_row(bucket_start, bucket_values)
@@ -244,6 +267,7 @@ def _convert_interpolate(
     all_field_names: list[str],
     chunk_rows: int,
     freq_hz: float,
+    use_normalized_payloads: bool,
 ) -> int:
     samples, min_ts, max_ts = _collect_interpolation_samples(
         reader=reader,
@@ -261,7 +285,7 @@ def _convert_interpolate(
 
     target_ts = min_ts
     while target_ts <= max_ts:
-        row_values: dict[str, str | None] = {}
+        row_values: dict[str, Any | None] = {}
 
         for field_name in all_field_names:
             sample = samples[field_name]
@@ -283,7 +307,10 @@ def _convert_interpolate(
             lower_indices[field_name] = idx
 
             if timestamps[idx] == target_ts:
-                row_values[field_name] = serializer.dumps(payloads[idx])
+                if use_normalized_payloads:
+                    row_values[field_name] = payloads[idx]
+                else:
+                    row_values[field_name] = serializer.dumps(payloads[idx])
                 continue
 
             upper_idx = idx + 1
@@ -293,13 +320,18 @@ def _convert_interpolate(
             lo_ts = timestamps[idx]
             hi_ts = timestamps[upper_idx]
             if hi_ts == lo_ts:
-                row_values[field_name] = serializer.dumps(payloads[idx])
+                if use_normalized_payloads:
+                    row_values[field_name] = payloads[idx]
+                else:
+                    row_values[field_name] = serializer.dumps(payloads[idx])
                 continue
 
             alpha = (target_ts - lo_ts) / (hi_ts - lo_ts)
-            row_values[field_name] = serializer.dumps(
-                _interpolate_json_leaves(payloads[idx], payloads[upper_idx], alpha)
-            )
+            interpolated = _interpolate_json_leaves(payloads[idx], payloads[upper_idx], alpha)
+            if use_normalized_payloads:
+                row_values[field_name] = interpolated
+            else:
+                row_values[field_name] = serializer.dumps(interpolated)
 
         builder.add_row(target_ts, row_values)
         rows_written += 1
@@ -335,6 +367,7 @@ def _convert_single_source(
             raise ValueError(f"No requested topics from mapping were found in bag: {normalized_bag_path}")
 
         all_field_names = list(mapping.root.keys())
+        use_normalized_payloads = output.format == "tfrecord"
         context = _build_episode_context(
             episode_id=episode_id,
             bag_path=normalized_bag_path,
@@ -358,6 +391,7 @@ def _convert_single_source(
                     all_field_names=all_field_names,
                     bag_path=normalized_bag_path,
                     chunk_rows=chunk_rows,
+                    use_normalized_payloads=use_normalized_payloads,
                 )
             elif resample.method == "downsample":
                 rows_written = _convert_downsample(
@@ -368,6 +402,7 @@ def _convert_single_source(
                     bag_path=normalized_bag_path,
                     chunk_rows=chunk_rows,
                     freq_hz=resample.freq_hz,
+                    use_normalized_payloads=use_normalized_payloads,
                 )
             else:
                 rows_written = _convert_interpolate(
@@ -377,6 +412,7 @@ def _convert_single_source(
                     all_field_names=all_field_names,
                     chunk_rows=chunk_rows,
                     freq_hz=resample.freq_hz,
+                    use_normalized_payloads=use_normalized_payloads,
                 )
 
         logger.info("Finished %s: wrote %s rows to %s", episode_id, rows_written, writer.path)

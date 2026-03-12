@@ -237,6 +237,8 @@ class TestConverter:
         assert results[0].exists()
         rows = list(stream_tfrecord_rows(results[0]))
         assert [row["timestamp_ns"] for row in rows] == [1_000_000_000, 2_000_000_000]
+        assert rows[0]["cmd_vel__present"] == 1
+        assert rows[0]["cmd_vel__v"] == 1
 
     def test_convert_tfrecord_no_resample_uses_union_timestamps_with_nulls(self, tmp_bag_file, tmp_path):
         from hephaes.converter import Converter
@@ -247,7 +249,7 @@ class TestConverter:
             topics={"/cmd_vel": "geometry_msgs/Twist", "/odom": "nav_msgs/Odometry"},
             messages=[
                 ("/cmd_vel", 1_000_000_000, {"v": 1}),
-                ("/odom", 2_000_000_000, {"pose": {}}),
+                ("/odom", 2_000_000_000, {"pose": {"x": 3}}),
             ],
         )
 
@@ -263,10 +265,12 @@ class TestConverter:
 
         rows = list(stream_tfrecord_rows(results[0]))
         assert [row["timestamp_ns"] for row in rows] == [1_000_000_000, 2_000_000_000]
-        assert rows[0]["cmd_vel"] is not None
-        assert rows[0]["odom"] is None
-        assert rows[1]["cmd_vel"] is None
-        assert rows[1]["odom"] is not None
+        assert rows[0]["cmd_vel__present"] == 1
+        assert rows[0]["cmd_vel__v"] == 1
+        assert rows[0]["odom__present"] == 0
+        assert rows[1]["cmd_vel__present"] == 0
+        assert rows[1]["odom__present"] == 1
+        assert rows[1]["odom__pose__x"] == 3
 
     @pytest.mark.skipif(not _HAS_PYARROW, reason="pyarrow not installed")
     def test_convert_mapping_alias_fallback(self, tmp_bag_file, tmp_path):

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import base64
 import gzip
+import json
 import struct
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from ..models import OutputConfig, TFRecordOutputConfig
 from .base import BaseDatasetWriter, EpisodeContext, RecordBatch
 
 _CRC32C_POLYNOMIAL = 0x82F63B78
 _CRC32C_TABLE: tuple[int, ...] = ()
+_FeatureValue = tuple[str, list[bytes] | list[int] | list[float]]
 
 
 def _build_crc32c_table() -> tuple[int, ...]:
@@ -73,6 +76,11 @@ def _encode_bytes_list(values: list[bytes]) -> bytes:
     return _encode_length_delimited(1, payload)
 
 
+def _encode_float_list(values: list[float]) -> bytes:
+    packed = struct.pack("<" + "f" * len(values), *values) if values else b""
+    return _encode_length_delimited(2, _encode_length_delimited(1, packed))
+
+
 def _encode_int64_list(values: list[int]) -> bytes:
     packed = b"".join(_encode_varint(value) for value in values)
     return _encode_length_delimited(3, _encode_length_delimited(1, packed))
@@ -83,11 +91,13 @@ def _encode_feature_entry(key: str, payload: bytes) -> bytes:
     return _encode_length_delimited(1, entry)
 
 
-def _encode_example(features: dict[str, tuple[str, list[bytes] | list[int]]]) -> bytes:
+def _encode_example(features: dict[str, _FeatureValue]) -> bytes:
     entries = bytearray()
     for key, (kind, values) in features.items():
         if kind == "bytes":
             entries.extend(_encode_feature_entry(key, _encode_bytes_list(list(values))))
+        elif kind == "float":
+            entries.extend(_encode_feature_entry(key, _encode_float_list(list(values))))
         elif kind == "int64":
             entries.extend(_encode_feature_entry(key, _encode_int64_list(list(values))))
         else:  # pragma: no cover - guarded by writer usage
@@ -96,13 +106,111 @@ def _encode_example(features: dict[str, tuple[str, list[bytes] | list[int]]]) ->
     return _encode_length_delimited(1, bytes(entries))
 
 
+def _json_fallback_bytes(value: Any) -> bytes:
+    return json.dumps(value, separators=(",", ":"), sort_keys=True).encode("utf-8")
+
+
+def _is_encoded_bytes_object(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and value.get("__bytes__") is True
+        and value.get("encoding") == "base64"
+        and isinstance(value.get("value"), str)
+    )
+
+
+def _decode_encoded_bytes(value: dict[str, Any]) -> bytes:
+    return base64.b64decode(value["value"])
+
+
+def _flatten_sequence_feature(
+    prefix: str,
+    values: list[Any],
+    features: dict[str, _FeatureValue],
+) -> None:
+    if not values:
+        features[prefix] = ("bytes", [_json_fallback_bytes(values)])
+        return
+
+    if all(_is_encoded_bytes_object(item) for item in values):
+        features[prefix] = (
+            "bytes",
+            [_decode_encoded_bytes(item) for item in values],
+        )
+        return
+
+    if all(isinstance(item, bool) for item in values):
+        features[prefix] = ("int64", [int(item) for item in values])
+        return
+
+    if all(isinstance(item, int) and not isinstance(item, bool) for item in values):
+        features[prefix] = ("int64", [int(item) for item in values])
+        return
+
+    if all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in values):
+        features[prefix] = ("float", [float(item) for item in values])
+        return
+
+    if all(isinstance(item, str) for item in values):
+        features[prefix] = ("bytes", [item.encode("utf-8") for item in values])
+        return
+
+    features[prefix] = ("bytes", [_json_fallback_bytes(values)])
+
+
+def _flatten_value(
+    prefix: str,
+    value: Any,
+    features: dict[str, _FeatureValue],
+) -> None:
+    if value is None:
+        return
+
+    if _is_encoded_bytes_object(value):
+        features[prefix] = ("bytes", [_decode_encoded_bytes(value)])
+        return
+
+    if isinstance(value, bool):
+        features[prefix] = ("int64", [int(value)])
+        return
+
+    if isinstance(value, int):
+        features[prefix] = ("int64", [value])
+        return
+
+    if isinstance(value, float):
+        features[prefix] = ("float", [float(value)])
+        return
+
+    if isinstance(value, str):
+        features[prefix] = ("bytes", [value.encode("utf-8")])
+        return
+
+    if isinstance(value, (list, tuple)):
+        _flatten_sequence_feature(prefix, list(value), features)
+        return
+
+    if isinstance(value, dict):
+        if not value:
+            features[prefix] = ("bytes", [_json_fallback_bytes(value)])
+            return
+
+        for child_key, child_value in value.items():
+            if child_key.startswith("__") and child_key.endswith("__"):
+                continue
+            _flatten_value(f"{prefix}__{child_key}", child_value, features)
+        return
+
+    features[prefix] = ("bytes", [_json_fallback_bytes(value)])
+
+
 def _row_to_example(
     *,
     timestamp_ns: int,
-    row_values: dict[str, str | None],
+    row_values: dict[str, Any | None],
     field_names: list[str],
 ) -> bytes:
-    features: dict[str, tuple[str, list[bytes] | list[int]]] = {
+    features: dict[str, _FeatureValue] = {
         "timestamp_ns": ("int64", [timestamp_ns]),
     }
 
@@ -114,7 +222,7 @@ def _row_to_example(
             continue
 
         features[present_key] = ("int64", [1])
-        features[field_name] = ("bytes", [value.encode("utf-8")])
+        _flatten_value(field_name, value, features)
 
     return _encode_example(features)
 

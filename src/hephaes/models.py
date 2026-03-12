@@ -10,7 +10,7 @@ RosVersion = Literal["ROS1", "ROS2"]
 StorageFormat = Literal["bag", "mcap", "unknown"]
 TFRecordCompression = Literal["none", "gzip"]
 TFRecordNullEncoding = Literal["presence_flag"]
-TFRecordPayloadEncoding = Literal["json_utf8"]
+TFRecordPayloadEncoding = Literal["typed_features"]
 
 
 class Message(BaseModel):
@@ -52,7 +52,7 @@ class TFRecordOutputConfig(BaseModel):
 
     format: Literal["tfrecord"] = "tfrecord"
     compression: TFRecordCompression = "none"
-    payload_encoding: TFRecordPayloadEncoding = "json_utf8"
+    payload_encoding: TFRecordPayloadEncoding = "typed_features"
     null_encoding: TFRecordNullEncoding = "presence_flag"
 
 

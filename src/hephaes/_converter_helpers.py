@@ -43,11 +43,11 @@ class JsonPayloadSerializer:
 class _SparseChunkBuilder:
     def __init__(self, field_names: list[str]) -> None:
         self._field_names = field_names
-        self._columns: dict[str, list[str | None]] = {name: [] for name in field_names}
+        self._columns: dict[str, list[Any | None]] = {name: [] for name in field_names}
         self.timestamps: list[int] = []
         self.row_count = 0
 
-    def add_row(self, timestamp: int, values: dict[str, str | None]) -> None:
+    def add_row(self, timestamp: int, values: dict[str, Any | None]) -> None:
         self.timestamps.append(timestamp)
         self.row_count += 1
 
@@ -61,7 +61,7 @@ class _SparseChunkBuilder:
                 column.extend([None] * missing)
             column.append(value)
 
-    def pop_field_data(self) -> dict[str, list[str | None]]:
+    def pop_field_data(self) -> dict[str, list[Any | None]]:
         if self.row_count == 0:
             return {name: [] for name in self._field_names}
 

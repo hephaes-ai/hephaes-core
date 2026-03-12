@@ -91,7 +91,7 @@ class TestOutputConfigs:
         cfg = TFRecordOutputConfig()
         assert cfg.format == "tfrecord"
         assert cfg.compression == "none"
-        assert cfg.payload_encoding == "json_utf8"
+        assert cfg.payload_encoding == "typed_features"
         assert cfg.null_encoding == "presence_flag"
 
     def test_invalid_parquet_compression_rejected(self):
