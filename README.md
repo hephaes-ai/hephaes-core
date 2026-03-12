@@ -4,7 +4,7 @@ Python package for turning raw ROS/MCAP logs into standardized datasets with con
 
 - ingest ROS1 `.bag` and ROS2 `.mcap` logs
 - inspect topics, rates, and recording time ranges
-- synchronize asynchronous sensor streams onto a shared timeline
+- synchronize asynchronous sensor streams onto a shared timeline (downsample or interpolate)
 - convert logs into wide dataset files such as Parquet and TFRecord
 - standardize dataset schemas with explicit topic-to-field mappings
 
