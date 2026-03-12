@@ -5,7 +5,7 @@ import struct
 from pathlib import Path
 from typing import Any, BinaryIO, Generator
 
-from .outputs.tfrecord import _masked_crc32c
+from ._tfrecord_crc import _masked_crc32c
 
 
 def _decode_varint(data: bytes, offset: int) -> tuple[int, int]:
@@ -173,4 +173,3 @@ def stream_tfrecord_rows(
                 feature_name: _collapse_feature_values(kind, values)
                 for feature_name, (kind, values) in features.items()
             }
-

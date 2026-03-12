@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from .base import BaseDatasetWriter, DatasetWriter, EpisodeContext, RecordBatch
-from .parquet import ParquetDatasetWriter, create_parquet_writer
+from .parquet_writer import ParquetDatasetWriter, create_parquet_writer
 from .registry import WriterRegistry
-from .tfrecord import TFRecordDatasetWriter, create_tfrecord_writer
+from .tfrecord_writer import TFRecordDatasetWriter, create_tfrecord_writer
 
 DEFAULT_WRITER_REGISTRY = WriterRegistry()
 DEFAULT_WRITER_REGISTRY.register("parquet", create_parquet_writer)

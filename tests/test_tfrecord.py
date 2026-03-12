@@ -5,7 +5,7 @@ import base64
 
 from hephaes.models import TFRecordOutputConfig
 from hephaes.outputs import EpisodeContext, RecordBatch
-from hephaes.outputs.tfrecord import TFRecordDatasetWriter
+from hephaes.outputs.tfrecord_writer import TFRecordDatasetWriter
 from hephaes.tfrecord import stream_tfrecord_rows
 
 
