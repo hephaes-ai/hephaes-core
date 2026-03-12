@@ -10,7 +10,7 @@ class TestVersion:
     def test_version_defined(self):
         assert hasattr(hephaes, "__version__")
         assert isinstance(hephaes.__version__, str)
-        assert hephaes.__version__ == "0.1.0"
+        assert hephaes.__version__ == "0.1.1"
 
 
 class TestPublicExports:
@@ -25,6 +25,14 @@ class TestPublicExports:
     def test_resample_config_exported(self):
         from hephaes import ResampleConfig
         assert ResampleConfig is not None
+
+    def test_parquet_output_config_exported(self):
+        from hephaes import ParquetOutputConfig
+        assert ParquetOutputConfig is not None
+
+    def test_tfrecord_output_config_exported(self):
+        from hephaes import TFRecordOutputConfig
+        assert TFRecordOutputConfig is not None
 
     def test_wide_parquet_writer_exported(self):
         from hephaes import WideParquetWriter
@@ -58,6 +66,10 @@ class TestPublicExports:
         from hephaes import stream_wide_parquet_rows
         assert callable(stream_wide_parquet_rows)
 
+    def test_stream_tfrecord_rows_exported(self):
+        from hephaes import stream_tfrecord_rows
+        assert callable(stream_tfrecord_rows)
+
     def test_configure_logging_exported(self):
         from hephaes import configure_logging
         assert callable(configure_logging)
@@ -68,7 +80,9 @@ class TestPublicExports:
             "configure_logging",
             "Converter",
             "MappingTemplate",
+            "ParquetOutputConfig",
             "ResampleConfig",
+            "TFRecordOutputConfig",
             "WideParquetWriter",
             "Profiler",
             "ROS1Reader",
@@ -77,6 +91,7 @@ class TestPublicExports:
             "build_mapping_template",
             "build_mapping_template_from_json",
             "stream_wide_parquet_rows",
+            "stream_tfrecord_rows",
         }
         assert expected.issubset(set(hephaes.__all__))
 

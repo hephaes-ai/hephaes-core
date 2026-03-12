@@ -1,0 +1,183 @@
+from __future__ import annotations
+
+import gzip
+import struct
+from pathlib import Path
+from typing import Any, BinaryIO, Generator
+
+from .outputs.tfrecord import _masked_crc32c
+
+
+def _decode_varint(data: bytes, offset: int) -> tuple[int, int]:
+    shift = 0
+    value = 0
+
+    while True:
+        if offset >= len(data):
+            raise ValueError("Malformed TFRecord Example: truncated varint")
+
+        byte = data[offset]
+        offset += 1
+        value |= (byte & 0x7F) << shift
+        if not byte & 0x80:
+            return value, offset
+        shift += 7
+
+
+def _iter_message_fields(payload: bytes):
+    offset = 0
+    while offset < len(payload):
+        tag, offset = _decode_varint(payload, offset)
+        field_number = tag >> 3
+        wire_type = tag & 0x07
+
+        if wire_type == 0:
+            value, offset = _decode_varint(payload, offset)
+            yield field_number, wire_type, value
+            continue
+
+        if wire_type == 2:
+            length, offset = _decode_varint(payload, offset)
+            end = offset + length
+            if end > len(payload):
+                raise ValueError("Malformed TFRecord Example: truncated length-delimited field")
+            yield field_number, wire_type, payload[offset:end]
+            offset = end
+            continue
+
+        raise ValueError(f"Unsupported protobuf wire type in TFRecord Example: {wire_type}")
+
+
+def _decode_packed_int64(payload: bytes) -> list[int]:
+    values: list[int] = []
+    offset = 0
+    while offset < len(payload):
+        value, offset = _decode_varint(payload, offset)
+        values.append(value)
+    return values
+
+
+def _decode_feature(payload: bytes) -> tuple[str, list[bytes] | list[int]]:
+    for field_number, wire_type, value in _iter_message_fields(payload):
+        if field_number == 1 and wire_type == 2:
+            return "bytes", [
+                child
+                for child_field_number, child_wire_type, child in _iter_message_fields(value)
+                if child_field_number == 1 and child_wire_type == 2
+            ]
+
+        if field_number == 3 and wire_type == 2:
+            for child_field_number, child_wire_type, child in _iter_message_fields(value):
+                if child_field_number == 1 and child_wire_type == 2:
+                    return "int64", _decode_packed_int64(child)
+
+    raise ValueError("Malformed TFRecord Example: unsupported feature payload")
+
+
+def _decode_example_features(payload: bytes) -> dict[str, tuple[str, list[bytes] | list[int]]]:
+    features: dict[str, tuple[str, list[bytes] | list[int]]] = {}
+
+    for field_number, wire_type, entry_payload in _iter_message_fields(payload):
+        if field_number != 1 or wire_type != 2:
+            continue
+
+        key: str | None = None
+        feature_payload: bytes | None = None
+        for entry_field_number, entry_wire_type, entry_value in _iter_message_fields(entry_payload):
+            if entry_field_number == 1 and entry_wire_type == 2:
+                key = entry_value.decode("utf-8")
+            elif entry_field_number == 2 and entry_wire_type == 2:
+                feature_payload = entry_value
+
+        if key is None or feature_payload is None:
+            raise ValueError("Malformed TFRecord Example: invalid feature entry")
+
+        features[key] = _decode_feature(feature_payload)
+
+    return features
+
+
+def _decode_example(payload: bytes) -> dict[str, tuple[str, list[bytes] | list[int]]]:
+    for field_number, wire_type, value in _iter_message_fields(payload):
+        if field_number == 1 and wire_type == 2:
+            return _decode_example_features(value)
+    raise ValueError("Malformed TFRecord Example: missing features field")
+
+
+def _read_exact(handle: BinaryIO, size: int) -> bytes:
+    data = handle.read(size)
+    if len(data) != size:
+        raise ValueError("Malformed TFRecord file: truncated record")
+    return data
+
+
+def _open_tfrecord_handle(path: Path) -> BinaryIO:
+    with path.open("rb") as raw_handle:
+        prefix = raw_handle.read(2)
+
+    if prefix == b"\x1f\x8b":
+        return gzip.open(path, "rb")
+    return path.open("rb")
+
+
+def stream_tfrecord_rows(
+    tfrecord_path: str | Path,
+    *,
+    validate_checksums: bool = True,
+) -> Generator[dict[str, Any], None, None]:
+    path = Path(tfrecord_path)
+
+    with _open_tfrecord_handle(path) as handle:
+        while True:
+            length_bytes = handle.read(8)
+            if not length_bytes:
+                return
+            if len(length_bytes) != 8:
+                raise ValueError("Malformed TFRecord file: truncated length header")
+
+            length_crc = _read_exact(handle, 4)
+            if validate_checksums:
+                expected_length_crc = struct.pack("<I", _masked_crc32c(length_bytes))
+                if length_crc != expected_length_crc:
+                    raise ValueError("Malformed TFRecord file: length checksum mismatch")
+
+            payload_length = struct.unpack("<Q", length_bytes)[0]
+            payload = _read_exact(handle, payload_length)
+            payload_crc = _read_exact(handle, 4)
+            if validate_checksums:
+                expected_payload_crc = struct.pack("<I", _masked_crc32c(payload))
+                if payload_crc != expected_payload_crc:
+                    raise ValueError("Malformed TFRecord file: payload checksum mismatch")
+
+            features = _decode_example(payload)
+            timestamp_kind, timestamp_values = features["timestamp_ns"]
+            if timestamp_kind != "int64" or not timestamp_values:
+                raise ValueError("Malformed TFRecord Example: timestamp_ns must be an int64 feature")
+
+            row: dict[str, Any] = {
+                "timestamp_ns": int(timestamp_values[0]),
+            }
+            for feature_name, (kind, values) in features.items():
+                if feature_name == "timestamp_ns" or not feature_name.endswith("__present"):
+                    continue
+
+                field_name = feature_name[: -len("__present")]
+                present = bool(values[0]) if kind == "int64" and values else False
+                if not present:
+                    row[field_name] = None
+                    continue
+
+                data_feature = features.get(field_name)
+                if data_feature is None:
+                    raise ValueError(
+                        f"Malformed TFRecord Example: missing payload for field '{field_name}'"
+                    )
+                data_kind, data_values = data_feature
+                if data_kind != "bytes" or not data_values:
+                    raise ValueError(
+                        f"Malformed TFRecord Example: field '{field_name}' must be a bytes feature"
+                    )
+                row[field_name] = data_values[0].decode("utf-8")
+
+            yield row
+

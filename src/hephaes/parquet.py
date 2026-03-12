@@ -29,6 +29,7 @@ class WideParquetWriter:
         output_dir: str | Path,
         episode_id: str,
         field_names: list[str],
+        compression: str = "none",
     ) -> None:
         _require_pyarrow()
         self._pa = pa
@@ -47,7 +48,12 @@ class WideParquetWriter:
             for name in self._field_names
         ]
         self._schema = pa.schema(fixed_fields + dynamic_fields)
-        self._writer = pq.ParquetWriter(str(self.path), self._schema)
+        writer_compression = None if compression == "none" else compression
+        self._writer = pq.ParquetWriter(
+            str(self.path),
+            self._schema,
+            compression=writer_compression,
+        )
 
     def write_table(
         self,
@@ -70,7 +76,9 @@ class WideParquetWriter:
         self._writer.write_table(table)
 
     def close(self) -> None:
-        self._writer.close()
+        if self._writer is not None:
+            self._writer.close()
+            self._writer = None
 
     def __enter__(self) -> "WideParquetWriter":
         return self

@@ -1,12 +1,16 @@
-from typing import Any, Dict, List, Literal
+from typing import Annotated, Any, Dict, List, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator, model_validator
 
 CompressionFormat = Literal["zstd", "lz4", "bz2", "none", "unknown"]
+ParquetCompression = Literal["none", "snappy", "gzip", "brotli", "lz4", "zstd"]
 ResampleMethod = Literal["ffill", "interpolate"]
 ResampleStrategy = Literal["interpolate", "downsample"]
 RosVersion = Literal["ROS1", "ROS2"]
 StorageFormat = Literal["bag", "mcap", "unknown"]
+TFRecordCompression = Literal["none", "gzip"]
+TFRecordNullEncoding = Literal["presence_flag"]
+TFRecordPayloadEncoding = Literal["json_utf8"]
 
 
 class Message(BaseModel):
@@ -34,6 +38,28 @@ class ResampleConfig(BaseModel):
 
     freq_hz: float = Field(gt=0)
     method: ResampleStrategy
+
+
+class ParquetOutputConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    format: Literal["parquet"] = "parquet"
+    compression: ParquetCompression = "none"
+
+
+class TFRecordOutputConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    format: Literal["tfrecord"] = "tfrecord"
+    compression: TFRecordCompression = "none"
+    payload_encoding: TFRecordPayloadEncoding = "json_utf8"
+    null_encoding: TFRecordNullEncoding = "presence_flag"
+
+
+OutputConfig: TypeAlias = Annotated[
+    ParquetOutputConfig | TFRecordOutputConfig,
+    Field(discriminator="format"),
+]
 
 
 class EpisodeRef(BaseModel):
@@ -135,6 +161,9 @@ __all__ = [
     "InternalStats",
     "GroupingConfig",
     "ResampleConfig",
+    "ParquetOutputConfig",
+    "TFRecordOutputConfig",
+    "OutputConfig",
     "EpisodeRef",
     "MappingTemplate",
     "TemporalMetadata",

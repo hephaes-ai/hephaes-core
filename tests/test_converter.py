@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from hephaes.converter import _interpolate_json_leaves, _json_default, _resolve_mapping_for_bag
-from hephaes.models import MappingTemplate, ResampleConfig
+from hephaes.models import MappingTemplate, ResampleConfig, TFRecordOutputConfig
 
 _HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 
@@ -161,6 +161,18 @@ class TestConverter:
         with pytest.raises(TypeError, match="ResampleConfig"):
             Converter([str(tmp_bag_file)], self._make_mapping(), tmp_path, resample={"freq_hz": 10.0, "method": "downsample"})  # type: ignore[arg-type]
 
+    def test_init_invalid_output_type_raises(self, tmp_bag_file, tmp_path):
+        from hephaes.converter import Converter
+
+        with pytest.raises(TypeError, match="output"):
+            Converter([str(tmp_bag_file)], self._make_mapping(), tmp_path, output={"format": "tfrecord"})  # type: ignore[arg-type]
+
+    def test_init_invalid_output_string_raises(self, tmp_bag_file, tmp_path):
+        from hephaes.converter import Converter
+
+        with pytest.raises(ValueError, match="output"):
+            Converter([str(tmp_bag_file)], self._make_mapping(), tmp_path, output="csv")
+
     @pytest.mark.skipif(not _HAS_PYARROW, reason="pyarrow not installed")
     def test_convert_returns_parquet_paths(self, tmp_bag_file, tmp_path):
         mock_reader = make_mock_any_reader_with_payloads(
@@ -196,6 +208,60 @@ class TestConverter:
             results = converter.convert()
 
         rows = list(stream_wide_parquet_rows(results[0]))
+        assert [row["timestamp_ns"] for row in rows] == [1_000_000_000, 2_000_000_000]
+        assert rows[0]["cmd_vel"] is not None
+        assert rows[0]["odom"] is None
+        assert rows[1]["cmd_vel"] is None
+        assert rows[1]["odom"] is not None
+
+    def test_convert_returns_tfrecord_paths(self, tmp_bag_file, tmp_path):
+        from hephaes.converter import Converter
+        from hephaes.tfrecord import stream_tfrecord_rows
+
+        mock_reader = make_mock_any_reader_with_payloads(
+            topics={"/cmd_vel": "geometry_msgs/Twist"},
+            messages=[("/cmd_vel", 1_000_000_000, {"v": 1}), ("/cmd_vel", 2_000_000_000, {"v": 2})],
+        )
+        with _patch_any_reader(mock_reader):
+            converter = Converter(
+                [str(tmp_bag_file)],
+                self._make_mapping(),
+                tmp_path,
+                max_workers=1,
+                output="tfrecord",
+            )
+            results = converter.convert()
+
+        assert len(results) == 1
+        assert results[0].suffix == ".tfrecord"
+        assert results[0].exists()
+        rows = list(stream_tfrecord_rows(results[0]))
+        assert [row["timestamp_ns"] for row in rows] == [1_000_000_000, 2_000_000_000]
+
+    def test_convert_tfrecord_no_resample_uses_union_timestamps_with_nulls(self, tmp_bag_file, tmp_path):
+        from hephaes.converter import Converter
+        from hephaes.tfrecord import stream_tfrecord_rows
+
+        mapping = MappingTemplate.model_validate({"cmd_vel": ["/cmd_vel"], "odom": ["/odom"]})
+        mock_reader = make_mock_any_reader_with_payloads(
+            topics={"/cmd_vel": "geometry_msgs/Twist", "/odom": "nav_msgs/Odometry"},
+            messages=[
+                ("/cmd_vel", 1_000_000_000, {"v": 1}),
+                ("/odom", 2_000_000_000, {"pose": {}}),
+            ],
+        )
+
+        with _patch_any_reader(mock_reader):
+            converter = Converter(
+                [str(tmp_bag_file)],
+                mapping,
+                tmp_path,
+                max_workers=1,
+                output=TFRecordOutputConfig(),
+            )
+            results = converter.convert()
+
+        rows = list(stream_tfrecord_rows(results[0]))
         assert [row["timestamp_ns"] for row in rows] == [1_000_000_000, 2_000_000_000]
         assert rows[0]["cmd_vel"] is not None
         assert rows[0]["odom"] is None

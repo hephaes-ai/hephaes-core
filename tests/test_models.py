@@ -9,7 +9,9 @@ from hephaes.models import (
     InternalStats,
     MappingTemplate,
     Message,
+    ParquetOutputConfig,
     ReaderMetadata,
+    TFRecordOutputConfig,
     TemporalMetadata,
     Topic,
 )
@@ -73,6 +75,32 @@ class TestGroupingConfig:
     def test_explicit_bag(self):
         cfg = GroupingConfig(method="bag")
         assert cfg.method == "bag"
+
+
+# ---------------------------------------------------------------------------
+# Output Configs
+# ---------------------------------------------------------------------------
+
+class TestOutputConfigs:
+    def test_parquet_output_defaults(self):
+        cfg = ParquetOutputConfig()
+        assert cfg.format == "parquet"
+        assert cfg.compression == "none"
+
+    def test_tfrecord_output_defaults(self):
+        cfg = TFRecordOutputConfig()
+        assert cfg.format == "tfrecord"
+        assert cfg.compression == "none"
+        assert cfg.payload_encoding == "json_utf8"
+        assert cfg.null_encoding == "presence_flag"
+
+    def test_invalid_parquet_compression_rejected(self):
+        with pytest.raises(ValidationError):
+            ParquetOutputConfig(compression="bad")
+
+    def test_invalid_tfrecord_compression_rejected(self):
+        with pytest.raises(ValidationError):
+            TFRecordOutputConfig(compression="snappy")
 
 
 # ---------------------------------------------------------------------------
@@ -306,4 +334,3 @@ class TestBagMetadata:
         kwargs["topics"] = []
         bm = BagMetadata(**kwargs)
         assert bm.topics == []
-

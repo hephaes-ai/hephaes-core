@@ -1,6 +1,6 @@
 import logging
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 _PACKAGE_LOGGER_NAME = "hephaes"
 _package_logger = logging.getLogger(_PACKAGE_LOGGER_NAME)
@@ -29,7 +29,7 @@ def configure_logging(
 
 from .converter import Converter
 from .mappers import build_mapping_template, build_mapping_template_from_json
-from .models import MappingTemplate, ResampleConfig
+from .models import MappingTemplate, ParquetOutputConfig, ResampleConfig, TFRecordOutputConfig
 from .profiler import Profiler
 from .reader import ROS1Reader, ROS2Reader, RosReader
 
@@ -38,7 +38,9 @@ __all__ = [
     "configure_logging",
     "Converter",
     "MappingTemplate",
+    "ParquetOutputConfig",
     "ResampleConfig",
+    "TFRecordOutputConfig",
     "WideParquetWriter",
     "Profiler",
     "ROS1Reader",
@@ -47,6 +49,7 @@ __all__ = [
     "build_mapping_template",
     "build_mapping_template_from_json",
     "stream_wide_parquet_rows",
+    "stream_tfrecord_rows",
 ]
 
 
@@ -57,4 +60,8 @@ def __getattr__(name: str):
         if name == "WideParquetWriter":
             return WideParquetWriter
         return stream_wide_parquet_rows
+    if name == "stream_tfrecord_rows":
+        from .tfrecord import stream_tfrecord_rows
+
+        return stream_tfrecord_rows
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

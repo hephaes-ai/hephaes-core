@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hephaes"
 version = "0.1.1"
-description = "Core business logic for Hephaes - ROS bag processing and Parquet conversion"
+description = "Core business logic for Hephaes - ROS bag processing and dataset conversion"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -13,7 +13,7 @@ authors = [
   {name = "Daniel Yoo"},
   {name = "Fleming Yip"},
 ]
-keywords = ["robotics", "ros", "rosbag", "mcap", "parquet", "datasets"]
+keywords = ["robotics", "ros", "rosbag", "mcap", "parquet", "tfrecord", "datasets"]
 classifiers = [
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",

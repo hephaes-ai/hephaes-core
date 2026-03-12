@@ -5,7 +5,7 @@ Python package for turning raw ROS/MCAP logs into standardized datasets with con
 - ingest ROS1 `.bag` and ROS2 `.mcap` logs
 - inspect topics, rates, and recording time ranges
 - synchronize asynchronous sensor streams onto a shared timeline
-- convert logs into wide Parquet datasets
+- convert logs into wide dataset files such as Parquet and TFRecord
 - standardize dataset schemas with explicit topic-to-field mappings
 
 ## Current Scope
@@ -14,7 +14,7 @@ The library is intentionally focused on the core dataset-prep path.
 
 - Input formats: ROS1 `.bag`, ROS2 `.mcap`
 - Input paths must be files, not bag directories
-- Output format: one wide Parquet file per input log
+- Output formats: one wide Parquet or TFRecord file per input log
 - Interface: Python library
 - Python: 3.11+
 
@@ -86,31 +86,32 @@ mapping = build_mapping_template_from_json(
 
 In the example above, `front_camera`, `imu`, and `vehicle_twist` become the canonical dataset fields. Each field can list fallback source topics, which is useful when topic names vary across robots, fleets, or recording versions.
 
-### 3. Convert logs into Parquet
+### 3. Convert logs into Parquet or TFRecord
 
-Use `Converter` to write one Parquet file per input log.
+Use `Converter` to write one dataset file per input log. Parquet remains the default.
 
 ```python
-from hephaes import Converter, ResampleConfig
+from hephaes import Converter, ResampleConfig, TFRecordOutputConfig
 
 converter = Converter(
     ["data/run_001.mcap"],
     mapping,
     output_dir="dataset/processed",
+    output=TFRecordOutputConfig(),
     resample=ResampleConfig(freq_hz=10.0, method="interpolate"),
     max_workers=1,
 )
 
-parquet_paths = converter.convert()
-print(parquet_paths[0])
+dataset_paths = converter.convert()
+print(dataset_paths[0])
 ```
 
 ### 4. Stream the output rows
 
 ```python
-from hephaes import stream_wide_parquet_rows
+from hephaes import stream_tfrecord_rows
 
-for row in stream_wide_parquet_rows(parquet_paths[0], batch_size=128):
+for row in stream_tfrecord_rows(dataset_paths[0]):
     print(row)
     break
 ```
@@ -131,14 +132,15 @@ When you preserve original timestamps or downsample, the converter stores raw me
 
 ## Output Format
 
-Each input log becomes one Parquet file named like:
+Each input log becomes one dataset file named like:
 
 ```text
 episode_0001.parquet
 episode_0002.parquet
+episode_0003.tfrecord
 ```
 
-The Parquet schema is wide and simple:
+The logical row schema is wide and simple:
 
 ```text
 timestamp_ns: int64
@@ -151,9 +153,10 @@ vehicle_twist: string
 Notes:
 
 - `timestamp_ns` is always present.
-- Each mapping target becomes a nullable string column.
-- Payloads are stored as JSON strings.
+- Each mapping target becomes a nullable logical string field.
+- Payloads are stored as JSON strings across both Parquet and TFRecord outputs.
 - Raw byte payloads are wrapped as base64-encoded JSON objects shaped like `{"__bytes__": true, "encoding": "base64", "value": "..."}`.
+- TFRecord stores nullability with companion `<field>__present` features so missing values round-trip cleanly.
 
 This makes the output easy to stream, inspect, and hand off to downstream ETL, analysis or ML pipelines while preserving source payload fidelity.
 

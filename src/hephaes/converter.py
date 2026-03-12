@@ -5,6 +5,8 @@ from multiprocessing import Pool
 from pathlib import Path
 from typing import Any
 
+from pydantic import TypeAdapter
+
 from ._converter_helpers import (
     JsonPayloadSerializer,
     _encode_raw_payload,
@@ -16,10 +18,18 @@ from ._converter_helpers import (
     _TopicSamples,
 )
 from ._utils import determine_ros_version_from_path
-from .models import MappingTemplate, ResampleConfig
+from .models import (
+    MappingTemplate,
+    OutputConfig,
+    ParquetOutputConfig,
+    ResampleConfig,
+    TFRecordOutputConfig,
+)
+from .outputs import DEFAULT_WRITER_REGISTRY, EpisodeContext, RecordBatch, WriterRegistry
 from .reader import RosReader
 
 logger = logging.getLogger(__name__)
+_OUTPUT_CONFIG_ADAPTER = TypeAdapter(OutputConfig)
 
 
 @dataclass(frozen=True)
@@ -54,6 +64,41 @@ def _resolve_mapping_for_bag(
     return TopicPlan(topics_to_read=topics_to_read, topic_to_field=topic_to_field)
 
 
+def _resolve_output_config(
+    output: OutputConfig | str,
+) -> ParquetOutputConfig | TFRecordOutputConfig:
+    if isinstance(output, str):
+        if output not in {"parquet", "tfrecord"}:
+            raise ValueError("output must be 'parquet' or 'tfrecord'")
+        return _OUTPUT_CONFIG_ADAPTER.validate_python({"format": output})
+
+    if isinstance(output, (ParquetOutputConfig, TFRecordOutputConfig)):
+        return output
+
+    raise TypeError(
+        "output must be a string format name or an output config instance"
+    )
+
+
+def _build_episode_context(
+    *,
+    episode_id: str,
+    bag_path: str | Path,
+    ros_version: str,
+    field_names: list[str],
+    resample: ResampleConfig | None,
+    output: ParquetOutputConfig | TFRecordOutputConfig,
+) -> EpisodeContext:
+    return EpisodeContext(
+        episode_id=episode_id,
+        source_path=Path(bag_path),
+        ros_version=ros_version,
+        field_names=list(field_names),
+        resample=resample,
+        output=output,
+    )
+
+
 def _flush_chunk(
     *,
     builder: _SparseChunkBuilder,
@@ -62,12 +107,11 @@ def _flush_chunk(
     if builder.row_count == 0:
         return
 
-    timestamps = builder.timestamps
-    field_data = builder.pop_field_data()
-    writer.write_table(
-        timestamps=timestamps,
-        field_data=field_data,
+    batch = RecordBatch(
+        timestamps=list(builder.timestamps),
+        field_data=builder.pop_field_data(),
     )
+    writer.write_batch(batch)
 
 
 def _convert_no_resample(
@@ -268,15 +312,18 @@ def _convert_interpolate(
     return rows_written
 
 
-def _convert_single_bag(
+def _convert_single_source(
     bag_path: str | Path,
     output_dir: str | Path,
     episode_id: str,
     mapping_dict: dict[str, list[str]],
+    output_dict: dict[str, Any],
     resample_dict: dict[str, Any] | None,
     chunk_rows: int,
+    writer_registry: WriterRegistry | None,
 ) -> str:
     mapping = MappingTemplate.model_validate(mapping_dict)
+    output = _OUTPUT_CONFIG_ADAPTER.validate_python(output_dict)
     resample = ResampleConfig.model_validate(resample_dict) if resample_dict is not None else None
 
     normalized_bag_path = str(bag_path)
@@ -288,13 +335,20 @@ def _convert_single_bag(
             raise ValueError(f"No requested topics from mapping were found in bag: {normalized_bag_path}")
 
         all_field_names = list(mapping.root.keys())
-
-        from .parquet import WideParquetWriter
-
-        with WideParquetWriter(
-            output_dir=output_dir,
+        context = _build_episode_context(
             episode_id=episode_id,
+            bag_path=normalized_bag_path,
+            ros_version=ros_version,
             field_names=all_field_names,
+            resample=resample,
+            output=output,
+        )
+        resolved_registry = writer_registry or DEFAULT_WRITER_REGISTRY
+
+        with resolved_registry.create_writer(
+            output_dir=output_dir,
+            context=context,
+            config=output,
         ) as writer:
             if resample is None:
                 rows_written = _convert_no_resample(
@@ -336,9 +390,11 @@ class Converter:
         mapping: MappingTemplate,
         output_dir: str | Path,
         *,
+        output: OutputConfig | str = "parquet",
         resample: ResampleConfig | None = None,
         max_workers: int | None = None,
         chunk_rows: int = 50_000,
+        writer_registry: WriterRegistry | None = None,
     ) -> None:
         if not isinstance(file_paths, list):
             raise TypeError("file_paths must be a list of file paths")
@@ -350,6 +406,8 @@ class Converter:
             raise ValueError("chunk_rows must be >= 1")
         if resample is not None and not isinstance(resample, ResampleConfig):
             raise TypeError("resample must be a ResampleConfig instance or None")
+        if writer_registry is not None and not isinstance(writer_registry, WriterRegistry):
+            raise TypeError("writer_registry must be a WriterRegistry instance or None")
 
         for file_path in file_paths:
             determine_ros_version_from_path(file_path)
@@ -357,30 +415,40 @@ class Converter:
         self.file_paths = [Path(path) for path in file_paths]
         self.mapping = mapping
         self.output_dir = Path(output_dir)
+        self.output = _resolve_output_config(output)
         self.resample = resample
         self.max_workers = max_workers
         self.chunk_rows = chunk_rows
+        self.writer_registry = writer_registry or DEFAULT_WRITER_REGISTRY
 
     def convert(self) -> list[Path]:
         if not self.mapping.root:
             raise ValueError("No topics found in mapping template")
 
         mapping_dict = self.mapping.model_dump()
+        output_dict = self.output.model_dump()
         resample_dict = self.resample.model_dump() if self.resample is not None else None
 
         requested_workers = self.max_workers or os.cpu_count() or 1
         workers = min(requested_workers, len(self.file_paths))
-        logger.info("Converting %d bag(s) with %d worker(s)", len(self.file_paths), workers)
+        logger.info(
+            "Converting %d bag(s) with %d worker(s) to %s",
+            len(self.file_paths),
+            workers,
+            self.output.format,
+        )
 
         if workers <= 1:
             results = [
-                _convert_single_bag(
+                _convert_single_source(
                     bag_path=str(bag_path),
                     output_dir=str(self.output_dir),
                     episode_id=_default_episode_id(index),
                     mapping_dict=mapping_dict,
+                    output_dict=output_dict,
                     resample_dict=resample_dict,
                     chunk_rows=self.chunk_rows,
+                    writer_registry=self.writer_registry,
                 )
                 for index, bag_path in enumerate(self.file_paths)
             ]
@@ -391,12 +459,14 @@ class Converter:
                     str(self.output_dir),
                     _default_episode_id(index),
                     mapping_dict,
+                    output_dict,
                     resample_dict,
                     self.chunk_rows,
+                    self.writer_registry,
                 )
                 for index, bag_path in enumerate(self.file_paths)
             ]
             with Pool(processes=workers) as pool:
-                results = pool.starmap(_convert_single_bag, args)
+                results = pool.starmap(_convert_single_source, args)
 
         return [Path(path) for path in results]
