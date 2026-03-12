@@ -6,6 +6,29 @@ This changelog is intentionally lightweight and focuses on user-visible changes:
 new capabilities, behavior changes, bug fixes, and anything that affects dataset
 correctness or compatibility.
 
+## [0.2.2] - Unreleased
+
+### Added
+
+- Episode-level manifest sidecars via the new `hephaes.manifest` module. Each
+  converted dataset file now gets a neighboring
+  `<episode_id>.manifest.json` artifact for indexing and provenance.
+- Manifest contents now include dataset metadata, source bag metadata,
+  temporal metadata, conversion settings, requested and resolved topic mapping,
+  and optional user-supplied `robot_context`.
+- Placeholder manifest sections for downstream enrichment workflows:
+  `labels.auto_tags`, `labels.vlm_description`, `labels.objects_detected`,
+  `privacy.is_anonymized`, and `privacy.anonymization_method`.
+
+### Changed
+
+- `Converter(...)` now writes manifests by default and accepts optional
+  `robot_context` and `write_manifest` arguments to control manifest contents
+  and sidecar generation.
+- README documentation now shows the generated manifest artifact alongside the
+  converted dataset output.
+
+
 ## [0.2.1] - Released
 
 ### Added
