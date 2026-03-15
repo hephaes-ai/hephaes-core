@@ -27,3 +27,11 @@ The health endpoint is available at:
 ```text
 http://127.0.0.1:8000/health
 ```
+
+## Test
+
+From the repository root:
+
+```bash
+pytest backend/tests -q
+```
