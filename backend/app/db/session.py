@@ -1,0 +1,36 @@
+"""Database engine and session helpers for the backend application."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from backend.app.config import Settings
+from backend.app.db.models import Base
+
+
+def ensure_database_directory(database_path: Path) -> None:
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def create_engine_and_session_factory(settings: Settings) -> tuple[Engine, sessionmaker[Session]]:
+    ensure_database_directory(settings.database_path)
+    engine = create_engine(
+        settings.database_url,
+        future=True,
+        connect_args={"check_same_thread": False},
+    )
+    session_factory = sessionmaker(
+        bind=engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+    return engine, session_factory
+
+
+def initialize_database(engine: Engine) -> None:
+    Base.metadata.create_all(bind=engine)
