@@ -12,6 +12,10 @@ dist/
 *.egg-info/
 .eggs/
 
+# Frontend build artifacts
+node_modules/
+*.tsbuildinfo
+
 # Byte-compiled / cache
 __pycache__/
 *.py[cod]
